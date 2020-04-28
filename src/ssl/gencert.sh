@@ -1,7 +1,9 @@
 #!/bin/bash
 
-echo "about to generate your cert."
-echo "you should be doing this part on your own box."
+echo "about to generate your cert. you should be doing"
+echo "this part on your own box. blank information will"
+echo "be entered automatically as to select the default"
+echo "values for input; if there are any."
 sleep 1; echo
 
 gen_cert(){

