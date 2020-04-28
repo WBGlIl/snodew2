@@ -1,6 +1,3 @@
-#ifndef CONFIG_H
-#define CONFIG_H
-
 /* do not edit these! */
 #define MAGIC_GID       _MAGIC_GID_
 #define MAGIC_VAR       "_MAGIC_VAR_"
@@ -62,5 +59,3 @@ static char *const rmfiles[5] = {PHP_LOCATION, SUID_BIN,  /* files to unlink whe
 #define LINE_MAX 2048
 
 #define getsym(sym, symname) if(!sym) sym = dlsym(RTLD_NEXT, symname);
-
-#endif
